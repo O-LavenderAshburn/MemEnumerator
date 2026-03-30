@@ -5,7 +5,7 @@
 #include <psapi.h>
 
 
-int main() {
+int enumerate_services() {
     
     // Open a connection to the Service Control Manager
     // NULL, NULL means local machine and default database
@@ -89,7 +89,7 @@ int main() {
         } else {
             printf("Memory:  Could not read memory info\n");
         }
-        
+
         CloseHandle(hProcess);
         printf("\n");
         printf("\n");
