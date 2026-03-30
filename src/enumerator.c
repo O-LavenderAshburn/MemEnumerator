@@ -1,9 +1,12 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <windows.h>
 #include <winsvc.h>
+#include <psapi.h>
 
 
 int main() {
+    
     // Open a connection to the Service Control Manager
     // NULL, NULL means local machine and default database
     // SC_MANAGER_ENUMERATE_SERVICE is the permission we need to list services
@@ -56,21 +59,44 @@ int main() {
     }
 
     ENUM_SERVICE_STATUS_PROCESSA* services = (ENUM_SERVICE_STATUS_PROCESSA*)buffer;
+    
     // Get pointers to each service entry
     // lpServiceName is the internal name used by the system 
     // lpDisplayName is the human readable name of the service
     // dwProcessId is the PID we need to query memory usage later
     for (DWORD i = 0; i < servicesReturned; i++) {
-         
+        
         ENUM_SERVICE_STATUS_PROCESSA* svc = &services[i];
+
         printf("Name:    %s\n", svc->lpServiceName);
         printf("Display: %s\n", svc->lpDisplayName);
         printf("PID:     %lu\n", svc->ServiceStatusProcess.dwProcessId);
+
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,svc->ServiceStatusProcess.dwProcessId);
+        if (hProcess == NULL) {
+            printf("Memory:  Could not open process\n");
+            printf("---\n");
+            continue;
+        }
+        // PROCESS_MEMORY_COUNTERS holds all the memory figures for the process
+        PROCESS_MEMORY_COUNTERS pmc;
+        pmc.cb = sizeof(pmc);
+
+        // WorkingSetSize is physical RAM currently in use by this process
+        // Dividing by 1024 twice converts bytes to MB
+        if (GetProcessMemoryInfo(hProcess, &pmc, sizeof(pmc))) {    
+            printf("Memory:  %zu MB\n", pmc.WorkingSetSize / 1024 / 1024);
+        } else {
+            printf("Memory:  Could not read memory info\n");
+        }
+        
+        CloseHandle(hProcess);
+        printf("\n");
+        printf("\n");
+        printf("\n");
     }
     free(buffer);
     CloseServiceHandle(scm);
     return 0;
-
-
 
 }
