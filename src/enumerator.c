@@ -5,8 +5,24 @@
 #include <psapi.h>
 
 
+// Holds a service entry paired with its memory usage for sorting
+typedef struct {
+    ENUM_SERVICE_STATUS_PROCESSA svc;
+    SIZE_T memKB;
+} ServiceInfo;
+
+void clear_console() {
+    COORD topLeft = {0, 0};
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO screen;
+    DWORD written;
+    GetConsoleScreenBufferInfo(hConsole, &screen);
+    FillConsoleOutputCharacterA(hConsole, ' ', screen.dwSize.X * screen.dwSize.Y, topLeft, &written);
+    FillConsoleOutputAttribute(hConsole, screen.wAttributes, screen.dwSize.X * screen.dwSize.Y, topLeft, &written);
+    SetConsoleCursorPosition(hConsole, topLeft);
+}
 int enumerate_services() {
-    
+
     // Open a connection to the Service Control Manager
     // NULL, NULL means local machine and default database
     // SC_MANAGER_ENUMERATE_SERVICE is the permission we need to list services
@@ -38,6 +54,7 @@ int enumerate_services() {
         CloseServiceHandle(scm);
         return 1;
     }
+    resumeHandle = 0;
 
     // Fill the service buffer 
     if (!EnumServicesStatusExA(
