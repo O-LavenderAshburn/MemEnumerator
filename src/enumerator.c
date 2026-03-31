@@ -5,11 +5,6 @@
 #include <psapi.h>
 
 
-// Holds a service entry paired with its memory usage for sorting
-typedef struct {
-    ENUM_SERVICE_STATUS_PROCESSA svc;
-    SIZE_T memKB;
-} ServiceInfo;
 
 void clear_console() {
     COORD topLeft = {0, 0};
