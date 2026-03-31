@@ -68,14 +68,16 @@ int enumerate_services() {
         
         ENUM_SERVICE_STATUS_PROCESSA* svc = &services[i];
 
-        printf("Name:    %s\n", svc->lpServiceName);
-        printf("Display: %s\n", svc->lpDisplayName);
-        printf("PID:     %lu\n", svc->ServiceStatusProcess.dwProcessId);
+        printf("Name:    %s:    Display: %s     PID:     %lu\n", 
+                svc->lpServiceName,
+                svc->lpDisplayName,
+                svc->ServiceStatusProcess.dwProcessId);
 
-        HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,svc->ServiceStatusProcess.dwProcessId);
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,
+                                        FALSE,
+                                        svc->ServiceStatusProcess.dwProcessId);
         if (hProcess == NULL) {
             printf("Memory:  Could not open process\n");
-            printf("---\n");
             continue;
         }
         // PROCESS_MEMORY_COUNTERS holds all the memory figures for the process
@@ -85,15 +87,12 @@ int enumerate_services() {
         // WorkingSetSize is physical RAM currently in use by this process
         // Dividing by 1024 twice converts bytes to MB
         if (GetProcessMemoryInfo(hProcess, &pmc, sizeof(pmc))) {    
-            printf("Memory:  %zu MB\n", pmc.WorkingSetSize / 1024 / 1024);
+            printf("Memory: %zu KB\n", pmc.WorkingSetSize);
         } else {
             printf("Memory:  Could not read memory info\n");
         }
 
         CloseHandle(hProcess);
-        printf("\n");
-        printf("\n");
-        printf("\n");
     }
     free(buffer);
     CloseServiceHandle(scm);
