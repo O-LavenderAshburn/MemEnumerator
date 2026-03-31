@@ -7,6 +7,6 @@ int main() {
     while(1) {
         clear_console();
         enumerate_services();
-        Sleep(500);
+        Sleep(1000);
     }
 }
