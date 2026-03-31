@@ -1,8 +1,7 @@
 #ifndef ENUMERATOR_H
 #define ENUMERATOR_H
 
-int enumerate_services();
+int enumerate_processes(int);
 void clear_console();
-void enable_ansi();
 
 #endif

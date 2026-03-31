@@ -6,17 +6,17 @@
 
 // Holds a service entry paired with its memory usage for sorting
 typedef struct {
-    char serviceName[256];
-    char displayName[256];
     DWORD pid;
+    char name[256];
     SIZE_T memKB;
-} ServiceInfo;
+    int isService;
+} ProcessInfo;
 
 int compare_mem(const void* a, const void* b) {
-    const ServiceInfo* sa = (const ServiceInfo*)a;
-    const ServiceInfo* sb = (const ServiceInfo*)b;
-    if (sb->memKB > sa->memKB) return 1;
-    if (sb->memKB < sa->memKB) return -1;
+    const ProcessInfo* pa = (const ProcessInfo*)a;
+    const ProcessInfo* pb = (const ProcessInfo*)b;
+    if (pb->memKB > pa->memKB) return 1;
+    if (pb->memKB < pa->memKB) return -1;
     return 0;
 }
 
@@ -24,92 +24,73 @@ void clear_console() {
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
     CONSOLE_SCREEN_BUFFER_INFO screen;
     GetConsoleScreenBufferInfo(hConsole, &screen);
-
-    // Only clear the visible window, not the entire buffer
     COORD topLeft = {0, screen.srWindow.Top};
     DWORD cellCount = screen.dwSize.X * (screen.srWindow.Bottom - screen.srWindow.Top + 1);
     DWORD written;
-
     FillConsoleOutputCharacterA(hConsole, ' ', cellCount, topLeft, &written);
     FillConsoleOutputAttribute(hConsole, screen.wAttributes, cellCount, topLeft, &written);
     SetConsoleCursorPosition(hConsole, topLeft);
 }
 
-int enumerate_services() {
-    SC_HANDLE scm = OpenSCManagerW(NULL, NULL, SC_MANAGER_ENUMERATE_SERVICE);
-    if (scm == NULL) {
-        printf("Failed to open SCM: %d\n", GetLastError());
+
+int enumerate_processes(int scrollOffset) {
+
+    // Allocate memory for pids and enumirate over processes
+    DWORD pids[4096];
+    DWORD bytesReturned;
+    if (!EnumProcesses(pids, sizeof(pids), &bytesReturned)) {
+        printf("Failed to enumerate processes\n");
         return 1;
     }
 
-    DWORD bytesNeeded = 0;
-    DWORD servicesReturned = 0;
-    DWORD resumeHandle = 0;
+    DWORD count = bytesReturned / sizeof(DWORD);
+    ProcessInfo* infos = (ProcessInfo*)malloc(count * sizeof(ProcessInfo));
+    if (infos == NULL) return 1;
 
-    EnumServicesStatusExA(scm, SC_ENUM_PROCESS_INFO, SERVICE_WIN32,
-                          SERVICE_ACTIVE, NULL, 0, &bytesNeeded,
-                          &servicesReturned, &resumeHandle, NULL);
+    DWORD filled = 0;
+    for (DWORD i = 0; i < count; i++) {
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+                                      FALSE, pids[i]);
+        if (hProcess == NULL) continue;
 
-    BYTE* buffer = (BYTE*)malloc(bytesNeeded);
-    if (buffer == NULL) {
-        printf("Failed to allocate buffer\n");
-        CloseServiceHandle(scm);
-        return 1;
-    }
+        infos[filled].pid = pids[i];
+        infos[filled].memKB = 0;
 
-    resumeHandle = 0;
+        DWORD nameSize = 256;
+        if (!QueryFullProcessImageNameA(hProcess, 0, infos[filled].name, &nameSize))
+            strncpy(infos[filled].name, "<unknown>", 255);
 
-    if (!EnumServicesStatusExA(scm, SC_ENUM_PROCESS_INFO, SERVICE_WIN32,
-                               SERVICE_ACTIVE, buffer, bytesNeeded,
-                               &bytesNeeded, &servicesReturned,
-                               &resumeHandle, NULL)) {
-        printf("Failed to enumerate services: %d\n", GetLastError());
-        free(buffer);
-        CloseServiceHandle(scm);
-        return 1;
-    }
+        PROCESS_MEMORY_COUNTERS pmc;
+        pmc.cb = sizeof(pmc);
+        if (GetProcessMemoryInfo(hProcess, &pmc, sizeof(pmc)))
+            infos[filled].memKB = pmc.WorkingSetSize / 1024;
 
-    ENUM_SERVICE_STATUS_PROCESSA* services = (ENUM_SERVICE_STATUS_PROCESSA*)buffer;
-
-    // Build a sortable array with memory already fetched
-    ServiceInfo* infos = (ServiceInfo*)malloc(servicesReturned * sizeof(ServiceInfo));
-    if (infos == NULL) {
-        free(buffer);
-        CloseServiceHandle(scm);
-        return 1;
-    }
-
-    for (DWORD i = 0; i < servicesReturned; i++) {
-        strncpy(infos[i].serviceName, services[i].lpServiceName, 255);
-        strncpy(infos[i].displayName, services[i].lpDisplayName, 255);
-        infos[i].pid = services[i].ServiceStatusProcess.dwProcessId;
-        infos[i].memKB = 0;
-
-        HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
-                                    services[i].ServiceStatusProcess.dwProcessId);
-        if (hProcess != NULL) {
-            PROCESS_MEMORY_COUNTERS pmc;
-            pmc.cb = sizeof(pmc);
-            if (GetProcessMemoryInfo(hProcess, &pmc, sizeof(pmc)))
-                infos[i].memKB = pmc.WorkingSetSize / 1024;
-            CloseHandle(hProcess);
-        }
+        CloseHandle(hProcess);
+        filled++;
     }   
 
     // Sort highest to lowest
-    qsort(infos, servicesReturned, sizeof(ServiceInfo), compare_mem);
+    qsort(infos, filled, sizeof(ProcessInfo), compare_mem);
 
     // Print sorted results
-    for (DWORD i = 0; i < servicesReturned; i++) {
-        printf("Name: %-30s Display: %-40s PID: %-8lu Memory: %zu KB\n",
-           infos[i].serviceName,
-           infos[i].displayName,
-           infos[i].pid,
-           infos[i].memKB);
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO screen;
+    GetConsoleScreenBufferInfo(hConsole, &screen);
+    int visibleLines = screen.srWindow.Bottom - screen.srWindow.Top - 2;
+
+    if (scrollOffset > (int)filled - visibleLines) scrollOffset = (int)filled - visibleLines;
+    if (scrollOffset < 0) scrollOffset = 0;
+
+    printf("%-8s %-55s %s\n", "PID", "Name", "Memory");
+    printf("--------------------------------------------------------------------------------\n");
+
+    for (DWORD i = scrollOffset; i < filled && i < (DWORD)(scrollOffset + visibleLines); i++) {
+        printf("%-8lu %-55s %zu KB\n",
+               infos[i].pid,
+               infos[i].name,
+               infos[i].memKB);
     }
 
     free(infos);
-    free(buffer);
-    CloseServiceHandle(scm);
     return 0;
 }
